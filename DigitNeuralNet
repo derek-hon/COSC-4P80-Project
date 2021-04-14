@@ -1,0 +1,365 @@
+package neuralnet;
+
+/**
+ * @author: Evan Delo, 6042964, ed15bl
+ *
+ * usage: usage: java NeuralNetwork <learning_rate> <momentum>
+ * <num_hidden_nodes> <num_epochs> <b (bprop)| d (delta_bar_delta)>
+ *
+ * the parameters for the delta-bar-delta are hard-coded in as omega phi and
+ * theta
+ */
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.util.Random;
+import java.util.Scanner;
+
+public class NeuralNetwork {
+
+    double[][][] weights; //[i][j][k] from node j in layer i, to node k in layer i + 1
+    double[][][] prevInc; //previous weight increment, for momentum
+    double[][] activations;
+    double[][][] learningWeights;
+    double[][][] barDelta;
+    double[][][] prevBarDelta;
+    int[] layers;
+    double learningRate;
+    double momentum;
+    double omega = 0.05;
+    double phi = 0.02;
+    double theta = 0.5;
+    double[][][] testData;
+    boolean trainType;
+    double best = 0.0;
+
+    public NeuralNetwork(double[][][] trainData, double[][][] testData, double learningRate, double momentum, int numHiddenLayerNodes, boolean trainType) {
+        this.omega = learningRate;
+        this.phi = momentum;
+        this.testData = testData;
+        this.learningRate = learningRate;
+        this.momentum = momentum;
+        this.trainType = trainType;
+        layers = new int[]{trainData[0][0].length, numHiddenLayerNodes, 10};
+        weights = new double[2][0][0];
+        learningWeights = new double[2][0][0];
+        barDelta = new double[2][0][0];
+        prevBarDelta = new double[2][0][0];
+        prevInc = new double[2][0][0];
+        activations = new double[3][0];
+
+        for (int i = 0; i < 2; i++) {
+            weights[i] = new double[layers[i]][layers[i + 1]];
+            learningWeights[i] = new double[layers[i]][layers[i + 1]];
+            barDelta[i] = new double[layers[i]][layers[i + 1]];
+            prevBarDelta[i] = new double[layers[i]][layers[i + 1]];
+            prevInc[i] = new double[layers[i]][layers[i + 1]];
+            activations[i] = new double[layers[i]];
+        }
+        activations[2] = new double[layers[2]];
+        randomizeWeights();
+    }
+
+    private void randomizeWeights() {
+        Random r = new Random();
+        for (int i = 0; i < weights.length; i++) {
+            for (int j = 0; j < weights[i].length; j++) {
+                for (int k = 0; k < weights[i][j].length; k++) {
+                    weights[i][j][k] = -0.5 + (1.0) * r.nextDouble();
+                    learningWeights[i][j][k] = 0.1;
+                }
+            }
+        }
+    }
+
+    private void propogateForwards(double[] inputs) {
+        System.arraycopy(inputs, 0, activations[0], 0, inputs.length);
+        for (int i = 0; i < 2; i++) {
+            for (int j = 0; j < layers[i + 1]; j++) {
+                activations[i + 1][j] = 0.0;
+                for (int k = 0; k < layers[i]; k++) {
+                    activations[i + 1][j] += activations[i][k] * weights[i][k][j];
+                }
+                activations[i + 1][j] = sigmoid(activations[i + 1][j]);
+            }
+        }
+    }
+
+    private void propogateBackwards(double[] err) {
+
+        double[] deltaO = new double[layers[2]];
+
+        for (int i = 0; i < layers[2]; i++) {
+            deltaO[i] = derivativeSigmoid(activations[2][i]) * err[i];
+        }
+
+        double[] deltaH = new double[layers[1]];
+        for (int i = 0; i < layers[1]; i++) {
+            for (int j = 0; j < layers[2]; j++) {
+                deltaH[i] += derivativeSigmoid(activations[1][i]) * deltaO[j] * weights[1][i][j];
+            }
+        }
+        for (int i = 0; i < layers[0]; i++) {
+            for (int j = 0; j < layers[1]; j++) {
+                double increment = learningRate * deltaH[j] * activations[0][i];
+                weights[0][i][j] += increment + prevInc[0][i][j] * momentum;
+                prevInc[0][i][j] = increment;
+            }
+        }
+
+        for (int i = 0; i < layers[1]; i++) {
+            for (int j = 0; j < layers[2]; j++) {
+                double increment = learningRate * deltaO[j] * activations[1][i];
+                weights[1][i][j] += increment + prevInc[1][i][j] * momentum;
+                prevInc[1][i][j] = increment;
+            }
+        }
+    }
+
+    private void deltaBarDelta(double[] err) {
+
+        double[] deltaO = new double[layers[2]];
+
+        for (int i = 0; i < layers[2]; i++) {
+            deltaO[i] = derivativeSigmoid(activations[2][i]) * err[i];
+        }
+
+        double[] deltaH = new double[layers[1]];
+        for (int i = 0; i < layers[1]; i++) {
+            for (int j = 0; j < layers[2]; j++) {
+                deltaH[i] += derivativeSigmoid(activations[1][i]) * deltaO[j] * weights[1][i][j];
+            }
+        }
+        for (int i = 0; i < layers[0]; i++) {
+            for (int j = 0; j < layers[1]; j++) {
+                double increment = learningWeights[0][i][j] * deltaH[j] * activations[0][i];
+                barDelta[0][i][j] = (1 - theta) * increment + prevBarDelta[0][i][j];
+                weights[0][i][j] += increment;
+                prevInc[0][i][j] = increment;
+                if (prevBarDelta[0][i][j] * increment > 0) {
+                    learningWeights[0][i][j] += omega;
+                }
+                if (prevBarDelta[0][i][j] * increment < 0) {
+                    learningWeights[0][i][j] *= (1 - phi);
+                }
+            }
+        }
+        for (int i = 0; i < layers[1]; i++) {
+            for (int j = 0; j < layers[2]; j++) {
+                double increment = learningWeights[1][i][j] * deltaO[j] * activations[1][i];
+                barDelta[1][i][j] = (1 - theta) * increment + prevBarDelta[1][i][j];
+                weights[1][i][j] += increment;
+                prevInc[1][i][j] = increment;
+                if (prevBarDelta[1][i][j] * increment > 0) {
+                    learningWeights[1][i][j] += omega;
+                }
+                if (prevBarDelta[1][i][j] * increment < 0) {
+                    learningWeights[1][i][j] *= (1 - phi);
+                }
+            }
+        }
+        prevBarDelta = deepCopy3D(barDelta);
+    }
+
+    private double[][][] deepCopy3D(double[][][] weights) {
+        double[][][] temp = new double[weights.length][0][0];
+        for (int i = 0; i < weights.length; i++) {
+            temp[i] = new double[weights[i].length][0];
+            for (int j = 0; j < weights[i].length; j++) {
+                temp[i][j] = new double[weights[i][j].length];
+                for (int k = 0; k < weights[i][j].length; k++) {
+                    temp[i][j][k] = weights[i][j][k];
+                }
+            }
+        }
+        return temp;
+    }
+
+    private int evaluateInput(double[] inputs) {
+        propogateForwards(inputs);
+        double max = 0;
+        int maxIndex = 0;
+        for (int i = 0; i < activations[activations.length - 1].length; i++) {
+            if (activations[activations.length - 1][i] > max) {
+                max = activations[activations.length - 1][i];
+                maxIndex = i;
+            }
+        }
+        return maxIndex;
+    }
+
+    private double cost(double result[], int expected) {
+        double cost = 0;
+        for (int i = 0; i < result.length; i++) {
+            if (i == expected) {
+                cost += Math.pow(result[i] - 1, 2);
+            } else {
+                cost += Math.pow(result[i], 2);
+            }
+        }
+        return cost;
+    }
+
+    private void train(double[][][] inputs, int epoch) {
+        for (int e = 0; e < epoch; e++) {
+            for (int j = 0; j < inputs[0].length; j++) {
+                for (int i = 0; i < inputs.length; i++) {
+                    propogateForwards(inputs[i][j]);
+                    double[] err = new double[layers[layers.length - 1]];
+                    for (int k = 0; k < err.length; k++) {
+                        err[k] = -activations[activations.length - 1][k];
+                    }
+                    err[i] += 1.0;
+                    if (trainType) {
+                        propogateBackwards(err);
+                    } else {
+                        deltaBarDelta(err);
+                    }
+                }
+            }
+
+            //uncomment if you want updates of how well it is being trained
+            double[] results = test(testData);
+            best = best > results[0] ? best : results[0];
+            System.out.println(results[0] * 100);
+        }
+        System.out.println(learningRate + " " + momentum + " " + layers[1] + " " + best * 100);
+
+    }
+
+    private double[] test(double[][][] inputs) {
+        double[] results = {0.0, 0.0};
+        for (int i = 0; i < inputs.length; i++) {
+            for (int j = 0; j < inputs[i].length; j++) {
+                int result = evaluateInput(inputs[i][j]);
+                if (result == i) {
+                    results[0] += 1.0 / (inputs.length * inputs[i].length);
+                }
+                for (int k = 0; k < layers[2]; k++) {
+                    if (result == i) {
+                        results[1] += (1.0 - activations[2][k]) * (1.0 - activations[2][k]) / (double) (10 * inputs.length * inputs[i].length);
+                    }
+                    results[1] += activations[2][k] * activations[2][k] / (double) (10 * inputs.length * inputs[i].length);
+                }
+            }
+        }
+        return results;
+    }
+
+    private double sigmoid(double x) {
+//        return Math.max(0,x);
+        return (1 / (1 + Math.pow(Math.E, (-1 * x))));
+    }
+
+    private double derivativeSigmoid(double x) {
+//        return x > 0.0 ? 1 : 0.0;
+        return (x * (1 - x));
+    }
+
+    private double getBest() {
+        return best;
+    }
+
+    public static void main(String[] args) throws FileNotFoundException {
+//        if (args.length != 5) {
+//            System.out.println("usage: java NeuralNetwork <learning_rate> <momentum> <num_hidden_nodes> <num_epochs> <b (bprop)| d (delta_bar_delta)>");
+//            System.exit(0);
+//        }
+//        double learning_rate = Double.parseDouble(args[0]);
+//        double momentum = Double.parseDouble(args[1]);
+//        int num_hidden_nodes = Integer.parseInt(args[2]);
+//        int num_epochs = Integer.parseInt(args[3]);
+//        boolean temp;
+//        if (args[4].equals("b")) {
+//            temp = true;
+//        } else {
+//            temp = false;
+//        }
+
+        double learning_rate = 0.1;
+        double momentum = 0.5;
+        int num_hidden_nodes = 15;
+        int num_epochs = 30;
+        boolean temp = false;
+
+        int numTrain = 700;
+        double[][][] trainData = new double[10][numTrain][64];
+        int numTest = 400;
+        double[][][] testData = new double[10][numTest][64];
+        for (int i = 0; i < 10; i++) {
+            File f = new File("D:\\Desktop_HDD\\School\\Completed_Courses\\COSC_4P76\\Assign_1\\Neural_Net\\a1digits\\digit_train_" + i + ".txt");
+            Scanner s = new Scanner(f);
+            for (int j = 0; j < trainData[i].length; j++) {
+                String line = s.nextLine();
+                String[] d = line.split(",");
+                for (int k = 0; k < trainData[i][j].length; k++) {
+                    trainData[i][j][k] = Double.parseDouble(d[k]);
+                }
+            }
+        }
+
+        for (int i = 0; i < 10; i++) {
+            File f = new File("D:\\Desktop_HDD\\School\\Completed_Courses\\COSC_4P76\\Assign_1\\Neural_Net\\a1digits\\digit_test_" + i + ".txt");
+            Scanner s = new Scanner(f);
+            for (int j = 0; j < testData[i].length; j++) {
+                String line = s.nextLine();
+                String[] d = line.split(",");
+                for (int k = 0; k < testData[i][j].length; k++) {
+                    testData[i][j][k] = Double.parseDouble(d[k]);
+                }
+            }
+        }
+        
+        NeuralNetwork nn;
+        nn = new NeuralNetwork(trainData, testData, learning_rate, momentum, num_hidden_nodes, temp);
+        nn.train(trainData, num_epochs);
+
+//        learning_rate = 0.01;
+//        for (int i = 0; i < 30; i++) {
+//            nn = new NeuralNetwork(trainData, testData, learning_rate, momentum, num_hidden_nodes, temp);
+//            nn.train(trainData, num_epochs);
+//        }
+//        learning_rate = 0.1;
+//        for (int i = 0; i < 30; i++) {
+//            nn = new NeuralNetwork(trainData, testData, learning_rate, momentum, num_hidden_nodes, temp);
+//            nn.train(trainData, num_epochs);
+//        }
+//        learning_rate = 0.3;
+//        for (int i = 0; i < 30; i++) {
+//            nn = new NeuralNetwork(trainData, testData, learning_rate, momentum, num_hidden_nodes, temp);
+//            nn.train(trainData, num_epochs);
+//        }
+//        learning_rate = 0.01;
+//        momentum = 0.01;
+//        for (int i = 0; i < 30; i++) {
+//            nn = new NeuralNetwork(trainData, testData, learning_rate, momentum, num_hidden_nodes, temp);
+//            nn.train(trainData, num_epochs);
+//        }
+//        momentum = 0.1;
+//        for (int i = 0; i < 30; i++) {
+//            nn = new NeuralNetwork(trainData, testData, learning_rate, momentum, num_hidden_nodes, temp);
+//            nn.train(trainData, num_epochs);
+//        }
+//        momentum = 0.5;
+//        for (int i = 0; i < 30; i++) {
+//            nn = new NeuralNetwork(trainData, testData, learning_rate, momentum, num_hidden_nodes, temp);
+//            nn.train(trainData, num_epochs);
+//        }
+//        momentum = 0.05;
+//        num_hidden_nodes = 5;
+//        for (int i = 0; i < 30; i++) {
+//            nn = new NeuralNetwork(trainData, testData, learning_rate, momentum, num_hidden_nodes, temp);
+//            nn.train(trainData, num_epochs);
+//        }
+//        num_hidden_nodes = 15;
+//        for (int i = 0; i < 30; i++) {
+//            nn = new NeuralNetwork(trainData, testData, learning_rate, momentum, num_hidden_nodes, temp);
+//            nn.train(trainData, num_epochs);
+//        }
+//        num_hidden_nodes = 25;
+//        for (int i = 0; i < 30; i++) {
+//            nn = new NeuralNetwork(trainData, testData, learning_rate, momentum, num_hidden_nodes, temp);
+//            nn.train(trainData, num_epochs);
+//        }
+    }
+
+}
