@@ -57,16 +57,18 @@ public class DigitRecognition {
             }
         }
 
-        int popSize = 100;
-        
+        int popSize = 50;
+
         GA ga = new GA(0.75, 0.6, popSize, 2, 4, rand);
 
         for (int k = 0; k < 1000; k++) {
-            //Collections.shuffle(trainData, rand);
             ga.evaluatePopulation(trainData);
             ga.selectionProcess();
-            System.out.println(k + " " + ga.fittest(ga.population).fitness + " " + ga.population.get(popSize-1).fitness + " " + ga.mutationRate);
+            System.out.println(k + " " + ga.fittest(ga.population).fitness + " " + ga.population.get(popSize - 1).fitness + " " + ga.mutationRate);
         }
+
+        ga.evaluatePopulation(testData);
+        System.out.println(ga.fittest(ga.population).fitness + " " + ga.population.get(popSize - 1).fitness + " " + ga.mutationRate);
 
     }
 

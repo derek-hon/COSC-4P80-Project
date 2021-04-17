@@ -28,7 +28,7 @@ public class GA {
     private void initPopulation() {
         List<NeuralNet> newPop = new ArrayList<>();
         for (int i = 0; i < popSize; i++) {
-            NeuralNet nn = new NeuralNet(new int[]{64, 25, 10}, random);
+            NeuralNet nn = new NeuralNet(new int[]{64, 64,32, 10}, random);
             newPop.add(nn);
         }
         population = newPop;
@@ -50,8 +50,9 @@ public class GA {
         }
 
         while (newPop.size() < popSize - 1) {
-            NeuralNet chromosomeA = tournamentSelection();
-            NeuralNet chromosomeB = tournamentSelection();
+            NeuralNet[] chromosomes = tournamentSelection();
+            NeuralNet chromosomeA = chromosomes[0];
+            NeuralNet chromosomeB = chromosomes[1];
 
             if (random.nextDouble() < crossoverRate) {
                 NeuralNet[] children;
@@ -72,8 +73,8 @@ public class GA {
         }
 
         if (newPop.size() < popSize) {
-            NeuralNet chromosome = tournamentSelection();
-            newPop.add(chromosome);
+            NeuralNet[] chromosomes = tournamentSelection();
+            newPop.add(chromosomes[0]);
         }
         population = new ArrayList<>(newPop);
 
@@ -193,22 +194,28 @@ public class GA {
         return new NeuralNet[]{parentA, parentB};
     }
 
-    private NeuralNet tournamentSelection() {
+    private NeuralNet[] tournamentSelection() {
         List<NeuralNet> tourneyPop = new ArrayList<>();
         for (int i = 0; i < tourneySize; i++) {
             int pos = random.nextInt(popSize - 1);
             tourneyPop.add(population.get(pos).clone());
         }
-        return fittest(tourneyPop);
+        Collections.sort(tourneyPop);
+        return new NeuralNet[]{tourneyPop.get(0), tourneyPop.get(1)};
     }
 
     private void updateMutationRate() {
-        mutationRate = 0.8 - (population.get(0).fitness - population.get(popSize - 1).fitness)*2;
+        mutationRate = 0.75 - (population.get(0).fitness - population.get(popSize - 1).fitness) * 0.75;
+    }
+
+    private void updateCrossoverRate() {
+        crossoverRate = 0.25 + (population.get(0).fitness - population.get(popSize - 1).fitness) * 0.5;
     }
 
     public NeuralNet fittest(List<NeuralNet> population) {
         Collections.sort(population);
         updateMutationRate();
+        updateCrossoverRate();
         return population.get(0);
     }
 
